@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emoji Bounce</title>
+    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the game and responsive canvas */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #e5e7eb;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        #game-container {
+            width: 100%;
+            max-width: 480px; /* Standard mobile width */
+            background-color: #161b22;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        }
+        #gameCanvas {
+            border: 2px solid #28a745; /* Green border for theme */
+            display: block;
+            width: 100%;
+            /* The aspect ratio will be set by JavaScript to fill the container nicely */
+        }
+        /* Custom Button Style */
+        .game-button {
+            transition: all 0.1s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .game-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(40, 167, 69, 0.4);
+        }
+        .emoji-switcher-button {
+            background-color: #21262d; /* Darker background for emoji buttons */
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 1.5rem;
+            line-height: 1; /* Adjust line height for consistent emoji size */
+        }
+        .emoji-switcher-button:hover {
+            background-color: #30363d;
+            border-color: #8b949e;
+        }
+        .emoji-switcher-button.active {
+            background-color: #28a745; /* Green active state */
+            border-color: #28a745;
+            color: white;
+            box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.5); /* Green glow */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container" class="rounded-xl p-4">
+        <h1 class="text-2xl font-bold text-center mb-3 text-green-400">
+            <span id="currentEmojiTitle">🐛</span> I Love You A lot!!! <span id="currentEmojiTitle2">🍓</span>
+        </h1>
+
+        <!-- Score and Instructions Panel --><div class="flex justify-between items-center mb-4 text-sm">
+            <div id="scoreDisplay" class="font-mono text-xl text-yellow-400">Score: 0</div>
+            <div class="text-xs text-gray-400">Swipe/Drag paddle to move</div>
+        </div>
+
+        <canvas id="gameCanvas" width="400" height="600" class="rounded-lg"></canvas>
+
+        <!-- Emoji Selector --><div class="flex justify-around mt-4 space-x-2">
+            <button id="caterpillarButton" class="emoji-switcher-button active">🐛</button>
+            <button id="strawberryButton" class="emoji-switcher-button">🍓</button>
+            <button id="butterflyButton" class="emoji-switcher-button">🦋</button>
+        </div>
+
+        <!-- Creator Credit -->
+        <div class="text-center text-gray-500 text-sm mt-4">Made with love by Mustfa</div>
+
+
+        <!-- Game Over Message Box --><div id="messageBox" class="hidden fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-10">
+            <div class="bg-gray-800 p-8 rounded-xl shadow-2xl text-center max-w-xs mx-auto">
+                <p class="text-3xl font-bold mb-4 text-red-500">Game Over!</p>
+                <p class="text-xl mb-6">Final Score: <span id="finalScore" class="font-mono text-yellow-400">0</span></p>
+                <button id="restartButton" class="game-button w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg focus:outline-none">
+                    Restart Game
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Firebase Globals (Required but not used for this single-player game) ---
+        let appId = 'default-app-id';
+        let firebaseConfig = {};
+        let __initial_auth_token = null;
+
+        if (typeof __app_id !== 'undefined') { appId = __app_id; }
+        if (typeof __firebase_config !== 'undefined') {
+             try { firebaseConfig = JSON.parse(__firebase_config); } catch (e) { console.error("Could not parse firebase config:", e); }
+        }
+        if (typeof globalThis.__initial_auth_token !== 'undefined') { __initial_auth_token = globalThis.__initial_auth_token; }
+        // --------------------------------------------------------------------------
+        
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const messageBox = document.getElementById('messageBox');
+        const finalScore = document.getElementById('finalScore');
+        const restartButton = document.getElementById('restartButton');
+        const currentEmojiTitle = document.getElementById('currentEmojiTitle');
+        const currentEmojiTitle2 = document.getElementById('currentEmojiTitle2');
+
+
+        // Emoji Switcher Buttons
+        const caterpillarButton = document.getElementById('caterpillarButton');
+        const strawberryButton = document.getElementById('strawberryButton');
+        const butterflyButton = document.getElementById('butterflyButton');
+
+
+        let isGameOver = false;
+        let score = 0;
+        
+        // Game Constants
+        const CANVAS_ASPECT_RATIO = 400 / 600; // Maintain 4:6 aspect ratio
+
+        // Caterpillar (The Ball) Properties
+        let caterpillar = { // Renamed to 'ball' in code for generality but still uses caterpillar as default emoji
+            emoji: '🐛', // Default emoji
+            radius: 20, // Affects collision detection area
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            dx: 5, // Horizontal speed - increased difficulty
+            dy: -5, // Vertical speed - increased difficulty
+            speedMultiplier: 1.0,
+            initialSpeed: 5, // Increased initial speed
+            maxSpeed: 12, // Slightly higher max speed
+        };
+
+        // Paddle (The Bat/Belt Bar) Properties
+        const paddle = {
+            height: 12,
+            width: 80, // Reduced paddle width for increased difficulty
+            x: (canvas.width - 80) / 2,
+            y: canvas.height - 30,
+            color: '#713e1f', // Dark brown/leather color for 'belt' aesthetic
+            draw() {
+                // Draw the paddle as the "Bat/Belt" bar
+                ctx.fillStyle = this.color;
+                // Rounded rectangle for a slightly nicer look
+                const cornerRadius = 4;
+                ctx.beginPath();
+                ctx.moveTo(this.x + cornerRadius, this.y);
+                ctx.lineTo(this.x + this.width - cornerRadius, this.y);
+                ctx.arcTo(this.x + this.width, this.y, this.x + this.width, this.y + cornerRadius, cornerRadius);
+                ctx.lineTo(this.x + this.width, this.y + this.height - cornerRadius);
+                ctx.arcTo(this.x + this.width, this.y + this.height, this.x + this.width - cornerRadius, this.y + this.height, cornerRadius);
+                ctx.lineTo(this.x + cornerRadius, this.y + this.height);
+                ctx.arcTo(this.x, this.y + this.height, this.x, this.y + this.height - cornerRadius, cornerRadius);
+                ctx.lineTo(this.x, this.y + cornerRadius);
+                ctx.arcTo(this.x, this.y, this.x + cornerRadius, this.y, cornerRadius);
+                ctx.closePath();
+                ctx.fill();
+            }
+        };
+
+        // --- Utility Functions ---
+
+        // Adjust canvas size to fit container and maintain aspect ratio
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            const containerWidth = container.clientWidth - 32; // Subtract padding
+            canvas.width = containerWidth;
+            canvas.height = containerWidth / CANVAS_ASPECT_RATIO;
+            
+            // Rescale coordinates based on new size
+            paddle.y = canvas.height - 30;
+
+            // Recalculate ball position based on new canvas size for initial load only
+            if (score === 0 && !isGameOver) {
+                caterpillar.x = canvas.width / 2;
+                caterpillar.y = canvas.height / 2;
+                paddle.x = (canvas.width - paddle.width) / 2;
+            }
+        }
+
+        // --- Drawing Functions ---
+
+        function drawCaterpillar() {
+            ctx.font = `${caterpillar.radius * 2}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(caterpillar.emoji, caterpillar.x, caterpillar.y);
+        }
+
+        function draw() {
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw all game elements
+            paddle.draw();
+            drawCaterpillar();
+        }
+
+        // --- Game Logic ---
+
+        function update() {
+            if (isGameOver) return;
+
+            // Move Caterpillar
+            caterpillar.x += caterpillar.dx * caterpillar.speedMultiplier;
+            caterpillar.y += caterpillar.dy * caterpillar.speedMultiplier;
+
+            // Wall Collision (Left/Right)
+            if (caterpillar.x + caterpillar.radius > canvas.width || caterpillar.x - caterpillar.radius < 0) {
+                caterpillar.dx *= -1;
+            }
+
+            // Wall Collision (Top)
+            if (caterpillar.y - caterpillar.radius < 0) {
+                caterpillar.dy *= -1;
+            }
+
+            // Paddle Collision
+            if (
+                caterpillar.y + caterpillar.radius > paddle.y && // Check bottom of caterpillar vs top of paddle
+                caterpillar.y - caterpillar.radius < paddle.y + paddle.height && // Check top of caterpillar vs bottom of paddle
+                caterpillar.x + caterpillar.radius > paddle.x && // Check right of caterpillar vs left of paddle
+                caterpillar.x - caterpillar.radius < paddle.x + paddle.width && // Check left of caterpillar vs right of paddle
+                caterpillar.dy > 0 // Only check if moving downwards
+            ) {
+                // Reverse vertical direction
+                caterpillar.dy *= -1;
+
+                // Simple angle deflection (based on where it hit the paddle)
+                const hitPoint = caterpillar.x - (paddle.x + paddle.width / 2);
+                caterpillar.dx = hitPoint * 0.25; // Slightly more aggressive deflection
+                
+                // Increase speed multiplier every 5 hits
+                score++;
+                if (score % 5 === 0 && caterpillar.speedMultiplier < caterpillar.maxSpeed) {
+                    caterpillar.speedMultiplier += 0.15; // Increased speed increment
+                }
+                scoreDisplay.textContent = `Score: ${score}`;
+            }
+
+            // Game Over Condition (Bottom of screen)
+            if (caterpillar.y + caterpillar.radius > canvas.height) {
+                endGame();
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            if (!isGameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function endGame() {
+            isGameOver = true;
+            finalScore.textContent = score;
+            messageBox.classList.remove('hidden');
+        }
+
+        function resetGame() {
+            // Recalculate positions based on current canvas size
+            caterpillar.x = canvas.width / 2;
+            caterpillar.y = canvas.height / 2;
+            paddle.x = (canvas.width - paddle.width) / 2;
+
+            // Reset scores and state
+            score = 0;
+            scoreDisplay.textContent = `Score: ${score}`;
+            isGameOver = false;
+            
+            // Reset speeds and multiplier
+            caterpillar.dx = caterpillar.initialSpeed * (Math.random() > 0.5 ? 1 : -1);
+            caterpillar.dy = -caterpillar.initialSpeed;
+            caterpillar.speedMultiplier = 1.0;
+
+            // Hide message box and start loop
+            messageBox.classList.add('hidden');
+            gameLoop();
+        }
+
+        // --- Input Handling (Mobile Friendly) ---
+
+        // Map touch/mouse position to paddle position
+        function movePaddle(clientX) {
+            // Get the bounding box of the canvas to convert page coordinates to canvas coordinates
+            const rect = canvas.getBoundingClientRect();
+            const relativeX = clientX - rect.left;
+            
+            // Calculate new paddle center position
+            let newPaddleX = relativeX - paddle.width / 2;
+
+            // Clamp paddle position within canvas boundaries
+            if (newPaddleX < 0) {
+                newPaddleX = 0;
+            } else if (newPaddleX + paddle.width > canvas.width) {
+                newPaddleX = canvas.width - paddle.width;
+            }
+
+            paddle.x = newPaddleX;
+        }
+
+        // Mouse Events
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isGameOver) {
+                movePaddle(e.clientX);
+            }
+        });
+
+        // Touch Events (For Mobile Responsiveness)
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); // Prevent scrolling while dragging
+            if (!isGameOver && e.touches.length > 0) {
+                movePaddle(e.touches[0].clientX);
+            }
+        }, { passive: false });
+
+
+        // --- Emoji Switching Logic ---
+        function switchEmoji(newEmoji) {
+            caterpillar.emoji = newEmoji;
+            currentEmojiTitle.textContent = newEmoji; // Update title
+            // Reset game to apply new emoji and clear current state
+            resetGame();
+
+            // Update active button styling
+            [caterpillarButton, strawberryButton, butterflyButton].forEach(btn => {
+                btn.classList.remove('active');
+            });
+            if (newEmoji === '🐛') {
+                caterpillarButton.classList.add('active');
+            } else if (newEmoji === '🍓') {
+                strawberryButton.classList.add('active');
+            } else if (newEmoji === '🦋') {
+                butterflyButton.classList.add('active');
+            }
+        }
+
+        // Event Listeners for Emoji Switcher
+        caterpillarButton.addEventListener('click', () => switchEmoji('🐛'));
+        strawberryButton.addEventListener('click', () => switchEmoji('🍓'));
+        butterflyButton.addEventListener('click', () => switchEmoji('🦋'));
+
+
+        // Event Listeners
+        window.addEventListener('resize', resizeCanvas);
+        restartButton.addEventListener('click', resetGame);
+        
+        // --- Initialization ---
+        window.onload = function() {
+            resizeCanvas(); // Set initial size
+            resetGame(); // Start the game with default caterpillar
+        }
+
+    </script>
+</body>
+</html>
